@@ -8,6 +8,9 @@ import logging
 import sys
 from PIL import Image
 import io
+import time
+import threading
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(
@@ -21,6 +24,34 @@ logging.basicConfig(
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
+class ConditionTimer:
+    def __init__(self):
+        self.start_time = None
+        self.required_duration = 3.0  # 3 seconds
+        self.lock = threading.Lock()
+        
+    def start(self):
+        with self.lock:
+            if self.start_time is None:
+                self.start_time = time.time()
+                logging.info("Timer started")
+    
+    def reset(self):
+        with self.lock:
+            if self.start_time is not None:
+                logging.info("Timer reset")
+            self.start_time = None
+    
+    def check_completion(self):
+        with self.lock:
+            if self.start_time is None:
+                return False, 0
+            
+            elapsed = time.time() - self.start_time
+            if elapsed >= self.required_duration:
+                return True, self.required_duration
+            return False, elapsed
+
 class FaceAnalyzer:
     def __init__(self):
         # Load the required cascades
@@ -33,9 +64,12 @@ class FaceAnalyzer:
             raise
 
         # Constants - calibrated for webcam
-        self.actual_width = 15.0  # Average face width in cm
-        self.focal_length = 500.0  # Reduced focal length for better distance calculation
-        self.distance_scaling = 0.5  # Scaling factor to adjust distance measurements
+        self.actual_width = 15.0
+        self.focal_length = 500.0
+        self.distance_scaling = 0.5
+        
+        # Initialize condition timer
+        self.condition_timer = ConditionTimer()
 
     def analyze_lighting(self, frame, face_roi=None):
         """Analyze lighting conditions in the frame or face ROI"""
@@ -45,19 +79,14 @@ class FaceAnalyzer:
             analysis_region = frame
 
         try:
-            # Convert to YUV color space to get luminance
             yuv = cv2.cvtColor(analysis_region, cv2.COLOR_BGR2YUV)
             y_channel = yuv[:,:,0]
 
-            # Calculate metrics
             mean_brightness = float(y_channel.mean())
             std_brightness = float(y_channel.std())
-            
-            # Calculate overexposed and underexposed pixels
             overexposed = float((y_channel > 240).mean() * 100)
             underexposed = float((y_channel < 30).mean() * 100)
             
-            # Calculate lighting score
             lighting_score = 100 - (
                 abs(mean_brightness - 127) * 0.4 +
                 max(0, overexposed * 2) +
@@ -67,7 +96,6 @@ class FaceAnalyzer:
             )
             lighting_score = max(0, min(100, lighting_score))
             
-            # Determine if lighting is good
             is_good_lighting = (
                 40 < mean_brightness < 200 and
                 20 < std_brightness < 80 and
@@ -110,34 +138,33 @@ class FaceAnalyzer:
             if frame is None:
                 raise ValueError("Failed to decode image")
 
-            # Convert to grayscale for face detection
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             gray = cv2.equalizeHist(gray)
 
-            # Detect faces
             faces = self.face_cascade.detectMultiScale(
                 gray,
                 scaleFactor=1.1,
                 minNeighbors=5,
-                minSize=(100, 100),  # Increased minimum face size for closer detection
-                maxSize=(400, 400),  # Added maximum face size
+                minSize=(100, 100),
+                maxSize=(400, 400),
                 flags=cv2.CASCADE_SCALE_IMAGE
             )
 
             if len(faces) == 0:
+                self.condition_timer.reset()
                 return {
                     'success': False,
-                    'error': 'No face detected'
+                    'error': 'No face detected',
+                    'timer_status': {
+                        'is_complete': False,
+                        'elapsed_time': 0
+                    }
                 }
 
-            # Take the first face
             x, y, w, h = faces[0]
             face_roi = frame[y:y+h, x:x+w]
-            
-            # Analyze lighting
             lighting_analysis = self.analyze_lighting(face_roi)
             
-            # Detect eyes in the face region
             roi_gray = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
             eyes = self.eye_cascade.detectMultiScale(
                 roi_gray,
@@ -147,22 +174,27 @@ class FaceAnalyzer:
                 maxSize=(w//3, h//3)
             )
 
-            # Process eyes
             valid_eyes = []
             for (ex, ey, ew, eh) in eyes:
                 eye_center = (x + ex + ew // 2, y + ey + eh // 2)
                 rel_x = (ex + ew/2) / w
                 rel_y = (ey + eh/2) / h
-                if 0.1 < rel_y < 0.5:  # Only consider eyes in the upper half of face
+                if 0.1 < rel_y < 0.5:
                     valid_eyes.append((eye_center, rel_x))
 
             valid_eyes.sort(key=lambda x: x[1])
 
-            # Analyze face position if we have two eyes
-            position_analysis = {}
+            # Initialize position analysis
+            position_analysis = {
+                'is_straight': False,
+                'is_perfect_distance': False,
+                'angle': 0.0,
+                'distance': 0.0,
+                'eye_height_difference': 0.0
+            }
+
             if len(valid_eyes) >= 2:
                 eye_centers = [valid_eyes[0][0], valid_eyes[-1][0]]
-                
                 angle = self.calculate_angle(eye_centers[0], eye_centers[1])
                 eye_height_diff = abs(eye_centers[1][1] - eye_centers[0][1]) / h
                 eye_distance = math.sqrt(
@@ -172,7 +204,7 @@ class FaceAnalyzer:
 
                 is_straight = (abs(angle) < 10 and eye_height_diff < 0.05 and 0.3 < eye_distance/w < 0.7)
                 distance = self.calculate_distance(w)
-                is_perfect_distance = 10 <= distance <= 15  # Adjusted range for comfortable viewing
+                is_perfect_distance = 10 <= distance <= 15
 
                 position_analysis = {
                     'is_straight': bool(is_straight),
@@ -181,6 +213,27 @@ class FaceAnalyzer:
                     'distance': float(distance),
                     'eye_height_difference': float(eye_height_diff)
                 }
+
+                # Check all conditions
+                all_conditions_met = (
+                    is_straight and 
+                    is_perfect_distance and 
+                    lighting_analysis['is_good']
+                )
+
+                # Handle timer
+                if all_conditions_met:
+                    self.condition_timer.start()
+                else:
+                    self.condition_timer.reset()
+
+                # Check if timer is complete
+                timer_complete, elapsed_time = self.condition_timer.check_completion()
+
+            else:
+                # Reset timer if eyes are not detected
+                self.condition_timer.reset()
+                timer_complete, elapsed_time = False, 0
 
             return {
                 'success': True,
@@ -192,14 +245,27 @@ class FaceAnalyzer:
                     'height': int(h)
                 },
                 'lighting': lighting_analysis,
-                'position': position_analysis
+                'position': position_analysis,
+                'timer_status': {
+                    'is_complete': timer_complete,
+                    'elapsed_time': elapsed_time
+                },
+                'conditions_met': {
+                    'straight': position_analysis['is_straight'],
+                    'distance': position_analysis['is_perfect_distance'],
+                    'lighting': lighting_analysis['is_good']
+                }
             }
 
         except Exception as e:
             logging.error(f"Error in face analysis: {str(e)}")
             return {
                 'success': False,
-                'error': str(e)
+                'error': str(e),
+                'timer_status': {
+                    'is_complete': False,
+                    'elapsed_time': 0
+                }
             }
 
 # Initialize analyzer
@@ -227,7 +293,6 @@ def analyze_face():
 
         logging.info('Received analyze-face request')
         
-        # Get the image data from request
         data = request.json
         if not data or 'image' not in data:
             logging.error('No image data provided')
@@ -237,15 +302,12 @@ def analyze_face():
             }), 400
             
         try:
-            # Process base64 image
             image_data = data['image']
             if ',' in image_data:
                 image_data = image_data.split(',')[1]
             image_bytes = base64.b64decode(image_data)
             
-            # Analyze the face
             result = analyzer.analyze_face(image_bytes)
-            
             return jsonify(result)
             
         except Exception as e:
