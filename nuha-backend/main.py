@@ -11,6 +11,10 @@ import io
 import time
 import threading
 from datetime import datetime
+import google.generativeai as genai
+import PIL.Image
+import json
+from io import BytesIO
 
 # Configure logging
 logging.basicConfig(
@@ -323,6 +327,125 @@ def analyze_face():
         return jsonify({
             'success': False,
             'error': str(e)
+        }), 500
+
+def get_analysis_prompt():
+    return """You are a professional Korean skincare specialist for Nuuha Beauty products. Analyze this facial image in detail and provide specific product recommendations.
+
+Analyze for these skin conditions and concerns:
+1. Acne-Related:
+   - Active acne (whiteheads, blackheads, cystic, pustules)
+   - Blemishes
+   - Acne scarring
+   - Post-inflammatory erythema (PIE)
+
+2. Surface Issues:
+   - Enlarged pores
+   - Texture problems
+   - Tiny bumps
+   - Dullness
+   - Uneven skin tone
+
+3. Moisture & Oil:
+   - Oiliness
+   - Dryness
+   - Dehydration
+
+4. Aging & Damage:
+   - Wrinkles
+   - Fine lines
+   - Sun damage
+   - Dark spots
+   - Hyperpigmentation
+
+5. Sensitivity:
+   - Redness
+   - Inflammation
+   - Damaged skin barrier
+   - Sensitive skin
+
+Provide your analysis in this EXACT JSON format:
+{
+    "detected_diseases": {
+        "diseases": [
+            {
+                "name": "[condition name from list above]",
+                "confidence_percent": [confidence level between 50-100]
+            }
+        ]
+    },
+    "recommended_routine": [
+        {
+            "product": {
+                "name": "[Choose from: NUUHA BEAUTY MUGWORT HYDRA BRIGHT GENTLE DAILY FOAM CLEANSER / NUUHA BEAUTY 4 IN 1 HYDRA BRIGHT ULTIMATE KOREAN WATER MIST / NUUHA BEAUTY 4X BRIGHTENING COMPLEX ADVANCED GLOW SERUM / NUUHA BEAUTY 10X SOOTHING COMPLEX HYPER RELIEF SERUM / NUUHA BEAUTY 7X PEPTIDE ULTIMATE GLASS SKIN MOISTURISER / NUUHA BEAUTY ULTRA GLOW BRIGHTENING SERUM SUNSCREEN SPF50+ PA++++]",
+                "step": [step number 1-6],
+                "how_to_use": "[exact usage instructions matching product]",
+                "frequency": "[exact usage frequency]"
+            }
+        }
+    ]
+}
+
+Important Instructions:
+1. Only include conditions that are clearly visible
+2. Provide confidence percentages based on visibility and severity
+3. Recommend complete routine in correct order (cleanser → toner → serums → moisturizer → sunscreen)
+4. Include exact usage instructions for each product
+5. Match products to conditions based on their primary benefits
+6. Ensure all recommended products work together effectively"""
+
+def process_base64_image(base64_string):
+    try:
+        # Convert base64 string to PIL Image
+        image_data = base64.b64decode(base64_string)
+        image = PIL.Image.open(BytesIO(image_data))
+        
+        # Configure and initialize Gemini
+        genai.configure(api_key="AIzaSyAyQ4DGoHTIDWgfUE5qXl8FNYgBS3hMG_g")
+        model = genai.GenerativeModel(model_name="gemini-1.5-pro")
+        
+        # Generate analysis
+        response = model.generate_content([get_analysis_prompt(), image])
+        
+        # Parse JSON response
+        analysis = json.loads(response.text)
+        
+        return analysis
+        
+    except Exception as e:
+        print(f"Error processing image: {str(e)}")
+        return None
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "healthy"}), 200
+
+@app.route('/analyze-skin', methods=['POST'])
+def analyze_skin():
+    try:
+        # Validate request
+        if not request.is_json:
+            return jsonify({"error": "Content-Type must be application/json"}), 400
+        
+        data = request.json
+        if 'image' not in data:
+            return jsonify({"error": "Image data is required"}), 400
+        
+        # Process image
+        analysis = process_base64_image(data['image'])
+        if not analysis:
+            return jsonify({"error": "Failed to analyze image"}), 500
+        
+        # Return analysis results
+        return jsonify({
+            "status": "success",
+            "analysis": analysis
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "error": str(e)
         }), 500
 
 if __name__ == '__main__':
