@@ -61,8 +61,8 @@ class FaceAnalyzer:
         # Load the required cascades
         
         try:
-            self.face_cascade = cv2.CascadeClassifier('nuuhabeauty-faceanalyzer-backend/haarcascade_frontalface_default.xml')
-            self.eye_cascade = cv2.CascadeClassifier('nuuhabeauty-faceanalyzer-backend/haarcascade_eye.xml')
+            self.face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+            self.eye_cascade = cv2.CascadeClassifier('haarcascade_eye.xml')
             logging.info("Cascades loaded successfully")
         except Exception as e:
             logging.error(f"Error loading cascades: {str(e)}")
@@ -375,27 +375,29 @@ def get_analysis_prompt():
         - Damaged skin barrier
         - Sensitive skin
 
-        Provide your analysis in this format (DO NOT include any markdown formatting or code blocks, just pure JSON):
-        {
-            "detected_diseases": {
-                "diseases": [
-                    {
-                        "name": "[condition name from list above]",
-                        "confidence_percent": [confidence level between 50-100]
-                    }
-                ]
-            },
-            "recommended_routine": [
-                {
-                    "product": {
-                        "name": "[Choose from: NUUHA BEAUTY MUGWORT HYDRA BRIGHT GENTLE DAILY FOAM CLEANSER / NUUHA BEAUTY 4 IN 1 HYDRA BRIGHT ULTIMATE KOREAN WATER MIST / NUUHA BEAUTY 4X BRIGHTENING COMPLEX ADVANCED GLOW SERUM / NUUHA BEAUTY 10X SOOTHING COMPLEX HYPER RELIEF SERUM / NUUHA BEAUTY 7X PEPTIDE ULTIMATE GLASS SKIN MOISTURISER / NUUHA BEAUTY ULTRA GLOW BRIGHTENING SERUM SUNSCREEN SPF50+ PA++++]",
-                        "step": [step number 1-6],
-                        "how_to_use": "[exact usage instructions]",
-                        "frequency": "[exact usage frequency]"
-                    }
-                }
-            ]
-        }"""
+        Provide your analysis in this EXACT JSON format:
+[
+    {
+        "name": "[EXACT product name from: NUUHA BEAUTY MUGWORT HYDRA BRIGHT GENTLE DAILY FOAM CLEANSER / NUUHA BEAUTY 4 IN 1 HYDRA BRIGHT ULTIMATE KOREAN WATER MIST / NUUHA BEAUTY 4X BRIGHTENING COMPLEX ADVANCED GLOW SERUM / NUUHA BEAUTY 10X SOOTHING COMPLEX HYPER RELIEF SERUM / NUUHA BEAUTY 7X PEPTIDE ULTIMATE GLASS SKIN MOISTURISER / NUUHA BEAUTY ULTRA GLOW BRIGHTENING SERUM SUNSCREEN SPF50+ PA++++]",
+        "step": [step number 1-6],
+        "how_to_use": "[clear instructions for product application]",
+        "frequency": "[usage frequency]",
+        "disease": {
+            "name": "[detected condition from list above]",
+            "confidence_percent": [confidence as decimal between 0-1]
+        }
+    }
+]
+Important Instructions:
+1. Return results as an array of product recommendations
+2. Each product must address a specific detected condition
+3. Sort products by step number (1-6)
+4. Include exact usage instructions
+5. Provide confidence as a decimal (e.g., 0.95 for 95% confidence)
+6. Only include conditions with high confidence (>0.5)
+7. Products must follow the correct skincare routine order
+8. Match each product to the most relevant skin condition
+"""
 
 def clean_gemini_response(response_text):
     # Remove markdown code block formatting if present
@@ -423,7 +425,7 @@ def analyze_skin():
         image = Image.open(BytesIO(image_bytes))
         
         # Configure and initialize Gemini
-        genai.configure(api_key="AIzaSyAyQ4DGoHTIDWgfUE5qXl8FNYgBS3hMG_g")
+        genai.configure(api_key="AIzaSyD_SxyscciDKfx7hhEeJ3yjFa0f7dmrEEE")
         model = genai.GenerativeModel(model_name="gemini-1.5-pro")
         
         # Get response from Gemini
