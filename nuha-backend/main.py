@@ -1,3 +1,5 @@
+# First file: face_analyzer.py
+import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import cv2
@@ -12,9 +14,8 @@ import time
 import threading
 from datetime import datetime
 import google.generativeai as genai
-import PIL.Image
-import json
-from io import BytesIO
+from rembg import remove
+
 
 # Configure logging
 logging.basicConfig(
@@ -26,8 +27,15 @@ logging.basicConfig(
 )
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app, resources={
+    r"/*": {
+        "origins": ["http://localhost:3000"],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"]
+    }
+})
 
+# [Previous ConditionTimer class remains the same]
 class ConditionTimer:
     def __init__(self):
         self.start_time = None
@@ -56,10 +64,104 @@ class ConditionTimer:
                 return True, self.required_duration
             return False, elapsed
 
+class GeminiManager:
+    def __init__(self):
+        self.api_keys = [
+            "AIzaSyBpLpIg_5apQEoXgP2Eg3kuGVTUyiwy0vE",
+            "AIzaSyAXGk_zpIGP_6VSzxVLFSBsk8ePN7uc1-E",
+            "AIzaSyDiEuFsPIya8em34GDtytDYXsOC1aJ48h8"
+        ]
+        self.models = ["gemini-1.5-flash", "gemini-1.5-pro"]
+        self.current_key_index = 0
+        self.current_model_index = 0
+        self.exhausted_combinations = set()
+        
+    def _next_model(self):
+        """Switch to next available model"""
+        self.current_model_index = (self.current_model_index + 1) % len(self.models)
+        return self.models[self.current_model_index]
+    
+    def _next_key(self):
+        """Switch to next available API key"""
+        self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
+        return self.api_keys[self.current_key_index]
+    
+    def _get_combination_key(self):
+        """Get current key-model combination identifier"""
+        return f"{self.api_keys[self.current_key_index]}_{self.models[self.current_model_index]}"
+    
+    def get_next_available_combination(self):
+        """Get next available API key and model combination"""
+        initial_combination = self._get_combination_key()
+        
+        while True:
+            current_combination = self._get_combination_key()
+            
+            # If we've tried all combinations
+            if len(self.exhausted_combinations) == len(self.api_keys) * len(self.models):
+                # Reset exhausted combinations and start over
+                self.exhausted_combinations.clear()
+                logging.warning("All combinations were exhausted. Resetting tracked combinations.")
+            
+            # If current combination is not exhausted, use it
+            if current_combination not in self.exhausted_combinations:
+                return self.api_keys[self.current_key_index], self.models[self.current_model_index]
+            
+            # Try next model first
+            if self.current_model_index < len(self.models) - 1:
+                self._next_model()
+            else:
+                # If we've tried all models, move to next key and reset model index
+                self._next_key()
+                self.current_model_index = 0
+            
+            # If we're back to where we started, all combinations are exhausted
+            if self._get_combination_key() == initial_combination:
+                raise Exception("All API key and model combinations are exhausted")
+    
+    def mark_current_exhausted(self):
+        """Mark current combination as exhausted"""
+        self.exhausted_combinations.add(self._get_combination_key())
+        logging.warning(f"Marked combination as exhausted: {self._get_combination_key()}")
+    
+    def generate_content(self, prompt, image):
+        """Generate content with automatic failover"""
+        attempts = 0
+        max_attempts = len(self.api_keys) * len(self.models)
+        last_error = None
+        
+        while attempts < max_attempts:
+            try:
+                api_key, model = self.get_next_available_combination()
+                genai.configure(api_key=api_key)
+                model_instance = genai.GenerativeModel(model_name=model)
+                
+                logging.info(f"Attempting with API key ending in ...{api_key[-4:]} and model {model}")
+                response = model_instance.generate_content([prompt, image])
+                return response
+                
+            except Exception as e:
+                error_message = str(e).lower()
+                attempts += 1
+                last_error = e
+                
+                # Check for quota-related errors
+                if any(err in error_message for err in ["quota", "rate limit", "429"]):
+                    logging.warning(f"Quota exceeded for combination. Marking as exhausted.")
+                    self.mark_current_exhausted()
+                    continue
+                
+                # If it's not a quota error, try next combination anyway
+                logging.warning(f"Error with current combination: {str(e)}")
+                self.mark_current_exhausted()
+                continue
+                
+        # If we get here, all attempts failed
+        raise Exception(f"All API keys and models exhausted. Last error: {str(last_error)}")
+
 class FaceAnalyzer:
     def __init__(self):
         # Load the required cascades
-        
         try:
             self.face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
             self.eye_cascade = cv2.CascadeClassifier('haarcascade_eye.xml')
@@ -76,6 +178,7 @@ class FaceAnalyzer:
         # Initialize condition timer
         self.condition_timer = ConditionTimer()
 
+    # [All previous FaceAnalyzer methods remain exactly the same]
     def analyze_lighting(self, frame, face_roi=None):
         """Analyze lighting conditions in the frame or face ROI"""
         if face_roi is not None:
@@ -189,7 +292,6 @@ class FaceAnalyzer:
 
             valid_eyes.sort(key=lambda x: x[1])
 
-            # Initialize position analysis
             position_analysis = {
                 'is_straight': False,
                 'is_perfect_distance': False,
@@ -219,24 +321,20 @@ class FaceAnalyzer:
                     'eye_height_difference': float(eye_height_diff)
                 }
 
-                # Check all conditions
                 all_conditions_met = (
                     is_straight and 
                     is_perfect_distance and 
                     lighting_analysis['is_good']
                 )
 
-                # Handle timer
                 if all_conditions_met:
                     self.condition_timer.start()
                 else:
                     self.condition_timer.reset()
 
-                # Check if timer is complete
                 timer_complete, elapsed_time = self.condition_timer.check_completion()
 
             else:
-                # Reset timer if eyes are not detected
                 self.condition_timer.reset()
                 timer_complete, elapsed_time = False, 0
 
@@ -329,120 +427,202 @@ def analyze_face():
             'error': str(e)
         }), 500
 
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import google.generativeai as genai
-from PIL import Image
-from io import BytesIO
-import base64
-import json
-
-app = Flask(__name__)
-CORS(app)
-
 def get_analysis_prompt():
     return """You are a professional Korean skincare specialist for Nuuha Beauty products. Analyze this facial image in detail and provide specific product recommendations.
 
-        Analyze for these skin conditions and concerns:
-        1. Acne-Related:
-        - Active acne (whiteheads, blackheads, cystic, pustules)
-        - Blemishes
-        - Acne scarring
-        - Post-inflammatory erythema (PIE)
+    Important Instructions:
+    1. First determine if the face needs treatment (has skin concerns) or just enhancement (healthy skin).
+    2. If you detect any skin concerns, mark status_face as "treatment" and fill the disease object.
+    3. If the skin is healthy, mark status_face as "enhancement" and fill the enhancement_remark object.
+    4. Never fill both disease and enhancement_remark - use only one based on status_face.
+    5. Assess overall skin condition from: "excellent", "good", "moderate", "concerning"
 
-        2. Surface Issues:
-        - Enlarged pores
-        - Texture problems
-        - Tiny bumps
-        - Dullness
-        - Uneven skin tone
+    Analyze for these potential conditions:
+    1. Acne-Related:
+    - Active acne (whiteheads, blackheads, cystic, pustules)
+    - Blemishes
+    - Acne scarring
+    - Post-inflammatory erythema (PIE)
 
-        3. Moisture & Oil:
-        - Oiliness
-        - Dryness
-        - Dehydration
+    2. Surface Issues:
+    - Enlarged pores
+    - Texture problems
+    - Tiny bumps
+    - Dullness
+    - Uneven skin tone
 
-        4. Aging & Damage:
-        - Wrinkles
-        - Fine lines
-        - Sun damage
-        - Dark spots
-        - Hyperpigmentation
+    3. Moisture & Oil:
+    - Oiliness
+    - Dryness
+    - Dehydration
 
-        5. Sensitivity:
-        - Redness
-        - Inflammation
-        - Damaged skin barrier
-        - Sensitive skin
+    4. Aging & Damage:
+    - Wrinkles
+    - Fine lines
+    - Sun damage
+    - Dark spots
+    - Hyperpigmentation
 
-        Provide your analysis in this EXACT JSON format:
-[
+    5. Sensitivity:
+    - Redness
+    - Inflammation
+    - Damaged skin barrier
+    - Sensitive skin
+
+    For healthy skin, consider these enhancement aspects:
+    - Brightness and radiance potential
+    - Hydration optimization
+    - Texture refinement
+    - Preventive care
+    - Pore minimization
+    - Protection needs
+
+    THE RESPONSE MUST EXACTLY MATCH THIS JSON STRUCTURE:
     {
-        "name": "[EXACT product name from: NUUHA BEAUTY MUGWORT HYDRA BRIGHT GENTLE DAILY FOAM CLEANSER / NUUHA BEAUTY 4 IN 1 HYDRA BRIGHT ULTIMATE KOREAN WATER MIST / NUUHA BEAUTY 4X BRIGHTENING COMPLEX ADVANCED GLOW SERUM / NUUHA BEAUTY 10X SOOTHING COMPLEX HYPER RELIEF SERUM / NUUHA BEAUTY 7X PEPTIDE ULTIMATE GLASS SKIN MOISTURISER / NUUHA BEAUTY ULTRA GLOW BRIGHTENING SERUM SUNSCREEN SPF50+ PA++++]",
-        "step": [step number 1-6],
-        "how_to_use": "[clear instructions for product application]",
-        "frequency": "[usage frequency]",
-        "disease": {
-            "name": "[detected condition from list above]",
-            "confidence_percent": [confidence as decimal between 0-1]
+        "status": "success",
+        "analysis": {
+            "products": [
+                {
+                    "enhancement_remark": {
+                        "confidence_percent": [0.0-1.0],
+                        "feature": "[skin feature or area to enhance]",
+                        "recommendation": "[specific enhancement suggestion with period at end.]"
+                    } OR "disease": {
+                        "confidence_percent": [0.0-1.0],
+                        "name": "[skin condition name]"
+                    },
+                    "frequency": "[usage frequency with period at end.]",
+                    "how_to_use": "[detailed application instructions with period at end.]",
+                    "name": "[EXACT product name from: NUUHA BEAUTY MUGWORT HYDRA BRIGHT GENTLE DAILY FOAM CLEANSER / NUUHA BEAUTY 4 IN 1 HYDRA BRIGHT ULTIMATE KOREAN WATER MIST / NUUHA BEAUTY 4X BRIGHTENING COMPLEX ADVANCED GLOW SERUM / NUUHA BEAUTY 10X SOOTHING COMPLEX HYPER RELIEF SERUM / NUUHA BEAUTY 7X PEPTIDE ULTIMATE GLASS SKIN MOISTURISER / NUUHA BEAUTY ULTRA GLOW BRIGHTENING SERUM SUNSCREEN SPF50+ PA++++]",
+                    "step": [1-5]
+                }
+            ],
+            "skin_condition": "[excellent/good/moderate/concerning]",
+            "status_face": "[treatment/enhancement]"
         }
     }
-]
-Important Instructions:
-1. Return results as an array of product recommendations
-2. Each product must address a specific detected condition
-3. Sort products by step number (1-6)
-4. Include exact usage instructions
-5. Provide confidence as a decimal (e.g., 0.95 for 95% confidence)
-6. Only include conditions with high confidence (>0.5)
-7. Products must follow the correct skincare routine order
-8. Match each product to the most relevant skin condition
-"""
+
+    IMPORTANT FORMAT RULES:
+    - All text fields must end with a period
+    - Keep exact field ordering as shown in the example
+    - Products array must be the first field in analysis object
+    - skin_condition and status_face must come after products array
+    - Each product must maintain exact field ordering: enhancement_remark/disease, frequency, how_to_use, name, step
+    - Response must be pure JSON with no additional text"""
 
 def clean_gemini_response(response_text):
-    # Remove markdown code block formatting if present
-    clean_text = response_text.replace("```json", "").replace("```", "").strip()
-    # Parse and return as JSON
-    return json.loads(clean_text)
+    try:
+        # Strip any non-JSON content
+        start = response_text.find('{')
+        end = response_text.rfind('}') + 1
+        if start == -1 or end == 0:
+            raise ValueError("No JSON object found in response")
+        json_str = response_text[start:end]
+        return json.loads(json_str)
+    except Exception as e:
+        logging.error(f"Response text: {response_text}")
+        raise
 
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({"status": "healthy"}), 200
+# Initialize the Gemini manager globally
+gemini_manager = GeminiManager()
 
 @app.route('/analyze-skin', methods=['POST'])
 def analyze_skin():
     try:
-        # Validate request
-        if not request.is_json:
-            return jsonify({"error": "Content-Type must be application/json"}), 400
-        
         data = request.json
         if 'image' not in data:
             return jsonify({"error": "Image data is required"}), 400
-
-        # Process image
-        image_bytes = base64.b64decode(data['image'])
-        image = Image.open(BytesIO(image_bytes))
+            
+        # Remove data URL prefix if present
+        image_data = data['image']
+        if ',' in image_data:
+            image_data = image_data.split(',')[1]
+            
+        # Decode base64 to bytes
+        image_bytes = base64.b64decode(image_data)
         
-        # Configure and initialize Gemini
-        genai.configure(api_key="AIzaSyD_SxyscciDKfx7hhEeJ3yjFa0f7dmrEEE")
-        model = genai.GenerativeModel(model_name="gemini-1.5-pro")
+        # Convert to PIL Image
+        image = Image.open(io.BytesIO(image_bytes))
         
-        # Get response from Gemini
-        response = model.generate_content([get_analysis_prompt(), image])
-        
-        # Clean and parse the response
-        analysis = clean_gemini_response(response.text)
-        
-        return jsonify({
-            "status": "success",
-            "analysis": analysis
-        })
-
+        # Get response using Gemini manager
+        try:
+            response = gemini_manager.generate_content(get_analysis_prompt(), image)
+            # Get the clean response and extract just the analysis part
+            cleaned_response = clean_gemini_response(response.text)
+            if 'analysis' in cleaned_response:
+                analysis = cleaned_response['analysis']
+            else:
+                analysis = cleaned_response
+                
+            return jsonify({
+                "status": "success",
+                "analysis": analysis
+            })
+        except Exception as e:
+            logging.error(f"Error generating content: {str(e)}")
+            return jsonify({
+                "status": "error",
+                "error": "Failed to analyze image after trying all available API keys and models."
+            }), 500
+            
     except Exception as e:
         return jsonify({
             "status": "error",
             "error": str(e)
+        }), 500
+
+# Add this new endpoint to your Flask app
+@app.route('/api/remove-background', methods=['POST'])
+def remove_background():
+    try:
+        logging.info('Received remove-background request')
+        
+        data = request.json
+        if not data or 'image' not in data:
+            logging.error('No image data provided')
+            return jsonify({
+                'success': False,
+                'error': 'No image data provided'
+            }), 400
+            
+        try:
+            # Get image data and handle data URL format
+            image_data = data['image']
+            if ',' in image_data:
+                image_data = image_data.split(',')[1]
+            
+            # Decode base64 to bytes
+            image_bytes = base64.b64decode(image_data)
+            
+            # Create PIL Image from bytes
+            input_image = Image.open(io.BytesIO(image_bytes))
+            
+            # Remove background
+            output_image = remove(input_image)
+            
+            # Convert back to base64
+            output_buffer = io.BytesIO()
+            output_image.save(output_buffer, format='PNG')
+            output_buffer.seek(0)
+            output_base64 = base64.b64encode(output_buffer.getvalue()).decode('utf-8')
+            
+            return jsonify({
+                'success': True,
+                'image': f'data:image/png;base64,{output_base64}'
+            })
+            
+        except Exception as e:
+            logging.error(f'Error processing image: {str(e)}')
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 400
+            
+    except Exception as e:
+        logging.error(f'Unexpected error: {str(e)}')
+        return jsonify({
+            'success': False,
+            'error': str(e)
         }), 500
 
 if __name__ == '__main__':
