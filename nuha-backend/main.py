@@ -27,7 +27,13 @@ logging.basicConfig(
 )
 
 app = Flask(__name__)
-CORS(app)  # Allow all origins for testing
+CORS(app, resources={
+    r"/api/*": {
+        "origins": "*",
+        "methods": ["POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"]
+    }
+})
 
 # [Previous ConditionTimer class remains the same]
 class ConditionTimer:
