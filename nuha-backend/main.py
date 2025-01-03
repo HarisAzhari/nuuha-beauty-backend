@@ -14,18 +14,8 @@ import time
 import threading
 from datetime import datetime
 import google.generativeai as genai
-<<<<<<< HEAD
-<<<<<<< HEAD
 from rembg import remove
 
-=======
-import os
-from flask import send_from_directory
->>>>>>> 91d9d47 (hakim)
-=======
-from rembg import remove
-
->>>>>>> 0d5aeb5 (push before release)
 
 # Configure logging
 logging.basicConfig(
@@ -473,10 +463,6 @@ def get_analysis_prompt():
     - Dark spots
     - Hyperpigmentation
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 0d5aeb5 (push before release)
     5. Sensitivity:
     - Redness
     - Inflammation
@@ -492,7 +478,6 @@ def get_analysis_prompt():
     - Protection needs
 
     THE RESPONSE MUST EXACTLY MATCH THIS JSON STRUCTURE:
-<<<<<<< HEAD
     {
         "status": "success",
         "analysis": {
@@ -524,154 +509,30 @@ def get_analysis_prompt():
     - skin_condition and status_face must come after products array
     - Each product must maintain exact field ordering: enhancement_remark/disease, frequency, how_to_use, name, step
     - Response must be pure JSON with no additional text"""
-=======
-        Provide your analysis in this EXACT JSON format:
-[
-=======
->>>>>>> 0d5aeb5 (push before release)
-    {
-        "status": "success",
-        "analysis": {
-            "products": [
-                {
-                    "enhancement_remark": {
-                        "confidence_percent": [0.0-1.0],
-                        "feature": "[skin feature or area to enhance]",
-                        "recommendation": "[specific enhancement suggestion with period at end.]"
-                    } OR "disease": {
-                        "confidence_percent": [0.0-1.0],
-                        "name": "[skin condition name]"
-                    },
-                    "frequency": "[usage frequency with period at end.]",
-                    "how_to_use": "[detailed application instructions with period at end.]",
-                    "name": "[EXACT product name from: NUUHA BEAUTY MUGWORT HYDRA BRIGHT GENTLE DAILY FOAM CLEANSER / NUUHA BEAUTY 4 IN 1 HYDRA BRIGHT ULTIMATE KOREAN WATER MIST / NUUHA BEAUTY 4X BRIGHTENING COMPLEX ADVANCED GLOW SERUM / NUUHA BEAUTY 10X SOOTHING COMPLEX HYPER RELIEF SERUM / NUUHA BEAUTY 7X PEPTIDE ULTIMATE GLASS SKIN MOISTURISER / NUUHA BEAUTY ULTRA GLOW BRIGHTENING SERUM SUNSCREEN SPF50+ PA++++]",
-                    "step": [1-5]
-                }
-            ],
-            "skin_condition": "[excellent/good/moderate/concerning]",
-            "status_face": "[treatment/enhancement]"
-        }
-    }
-<<<<<<< HEAD
-]"""
->>>>>>> 91d9d47 (hakim)
-=======
-
-    IMPORTANT FORMAT RULES:
-    - All text fields must end with a period
-    - Keep exact field ordering as shown in the example
-    - Products array must be the first field in analysis object
-    - skin_condition and status_face must come after products array
-    - Each product must maintain exact field ordering: enhancement_remark/disease, frequency, how_to_use, name, step
-    - Response must be pure JSON with no additional text"""
->>>>>>> 0d5aeb5 (push before release)
 
 def clean_gemini_response(response_text):
     try:
         # Strip any non-JSON content
-<<<<<<< HEAD
-<<<<<<< HEAD
         start = response_text.find('{')
         end = response_text.rfind('}') + 1
         if start == -1 or end == 0:
             raise ValueError("No JSON object found in response")
-=======
-        start = response_text.find('[')
-        end = response_text.rfind(']') + 1
-        if start == -1 or end == 0:
-            raise ValueError("No JSON array found in response")
->>>>>>> 91d9d47 (hakim)
-=======
-        start = response_text.find('{')
-        end = response_text.rfind('}') + 1
-        if start == -1 or end == 0:
-            raise ValueError("No JSON object found in response")
->>>>>>> 0d5aeb5 (push before release)
         json_str = response_text[start:end]
         return json.loads(json_str)
     except Exception as e:
         logging.error(f"Response text: {response_text}")
         raise
-<<<<<<< HEAD
-<<<<<<< HEAD
 
 # Initialize the Gemini manager globally
 gemini_manager = GeminiManager()
-=======
-    
-    
-    
-# Define constants
-IMAGE_PATH = 'images/6. Cleanser'  # Removed nuha-backend/ prefix
-IMAGE_PATH_FILENAME = '/images/6. Cleanser'
-
-ALLOWED_EXTENSIONS = {'.png', '.jpg', '.jpeg'}
-BASE_URL = 'http://127.0.0.1:5003/images/6. Cleanser/'
-
-@app.route('/images', methods=['GET'])
-def images():
-    try:
-        if not os.path.exists(IMAGE_PATH):
-            return jsonify({
-                'status': 'error',
-                'message': 'Directory not found'
-            }), 404
-
-        image_files = [
-            {
-                'filename': filename,
-                'url': f'{BASE_URL}{filename}'  # Use the defined BASE_URL
-            }
-            for filename in os.listdir(IMAGE_PATH)
-            if os.path.splitext(filename.lower())[1] in ALLOWED_EXTENSIONS
-        ]
-
-        return jsonify({
-            'status': 'success',
-            'data': image_files
-        })
-
-    except Exception as e:
-        logging.error(f"Error in /images endpoint: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
-
-@app.route('/images/<path:filename>', methods=['GET'])
-def serve_image(filename):
-    try:
-        # Ensure the directory exists
-        if not os.path.exists(IMAGE_PATH):
-            os.makedirs(IMAGE_PATH)
-            
-        # Check if file exists before trying to serve
-        if not os.path.exists(os.path.join(IMAGE_PATH, filename)):
-            raise FileNotFoundError(f"Image {filename} not found")
-            
-        return send_from_directory(IMAGE_PATH, filename, as_attachment=False)
-    except Exception as e:
-        logging.error(f"Error serving image {filename}: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': f"Image not found: {str(e)}"
-        }), 404
-
->>>>>>> 91d9d47 (hakim)
-=======
-
-# Initialize the Gemini manager globally
-gemini_manager = GeminiManager()
->>>>>>> 0d5aeb5 (push before release)
 
 @app.route('/analyze-skin', methods=['POST'])
 def analyze_skin():
     try:
         data = request.json
+ 
         if 'image' not in data:
             return jsonify({"error": "Image data is required"}), 400
-<<<<<<< HEAD
-<<<<<<< HEAD
             
         # Remove data URL prefix if present
         image_data = data['image']
@@ -705,70 +566,12 @@ def analyze_skin():
                 "error": "Failed to analyze image after trying all available API keys and models."
             }), 500
             
-=======
-        
-    
-=======
-            
->>>>>>> 0d5aeb5 (push before release)
-        # Remove data URL prefix if present
-        image_data = data['image']
-        if ',' in image_data:
-            image_data = image_data.split(',')[1]
-            
-        # Decode base64 to bytes
-        image_bytes = base64.b64decode(image_data)
-        
-        # Convert to PIL Image
-        image = Image.open(io.BytesIO(image_bytes))
-        
-<<<<<<< HEAD
-        # Configure Gemini
-        genai.configure(api_key="AIzaSyD_SxyscciDKfx7hhEeJ3yjFa0f7dmrEEE")
-        model = genai.GenerativeModel(model_name="gemini-1.5-pro")
-        
-        # Get response
-        response = model.generate_content([get_analysis_prompt(), image])
-        analysis = clean_gemini_response(response.text)
-        
-        return jsonify({
-            "status": "success",
-            "analysis": analysis
-        })
->>>>>>> 91d9d47 (hakim)
-=======
-        # Get response using Gemini manager
-        try:
-            response = gemini_manager.generate_content(get_analysis_prompt(), image)
-            # Get the clean response and extract just the analysis part
-            cleaned_response = clean_gemini_response(response.text)
-            if 'analysis' in cleaned_response:
-                analysis = cleaned_response['analysis']
-            else:
-                analysis = cleaned_response
-                
-            return jsonify({
-                "status": "success",
-                "analysis": analysis
-            })
-        except Exception as e:
-            logging.error(f"Error generating content: {str(e)}")
-            return jsonify({
-                "status": "error",
-                "error": "Failed to analyze image after trying all available API keys and models."
-            }), 500
-            
->>>>>>> 0d5aeb5 (push before release)
     except Exception as e:
         return jsonify({
             "status": "error",
             "error": str(e)
         }), 500
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 0d5aeb5 (push before release)
 # Add this new endpoint to your Flask app
 @app.route('/api/remove-background', methods=['POST'])
 def remove_background():
@@ -822,12 +625,6 @@ def remove_background():
             'success': False,
             'error': str(e)
         }), 500
-<<<<<<< HEAD
-=======
-
->>>>>>> 91d9d47 (hakim)
-=======
->>>>>>> 0d5aeb5 (push before release)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5003)
