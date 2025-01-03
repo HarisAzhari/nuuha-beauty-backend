@@ -410,6 +410,16 @@ def analyze_face():
                 image_data = image_data.split(',')[1]
             image_bytes = base64.b64decode(image_data)
             
+            # Validate image is not empty before analysis
+            nparr = np.frombuffer(image_bytes, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if img is None or img.size == 0:
+                logging.error('Invalid or empty image data')
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid or empty image data'
+                }), 400
+            
             result = analyzer.analyze_face(image_bytes)
             return jsonify(result)
             
