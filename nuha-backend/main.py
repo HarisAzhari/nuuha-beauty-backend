@@ -15,12 +15,17 @@ import threading
 from datetime import datetime
 import google.generativeai as genai
 <<<<<<< HEAD
+<<<<<<< HEAD
 from rembg import remove
 
 =======
 import os
 from flask import send_from_directory
 >>>>>>> 91d9d47 (hakim)
+=======
+from rembg import remove
+
+>>>>>>> 0d5aeb5 (push before release)
 
 # Configure logging
 logging.basicConfig(
@@ -469,6 +474,9 @@ def get_analysis_prompt():
     - Hyperpigmentation
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 0d5aeb5 (push before release)
     5. Sensitivity:
     - Redness
     - Inflammation
@@ -484,6 +492,7 @@ def get_analysis_prompt():
     - Protection needs
 
     THE RESPONSE MUST EXACTLY MATCH THIS JSON STRUCTURE:
+<<<<<<< HEAD
     {
         "status": "success",
         "analysis": {
@@ -518,22 +527,49 @@ def get_analysis_prompt():
 =======
         Provide your analysis in this EXACT JSON format:
 [
+=======
+>>>>>>> 0d5aeb5 (push before release)
     {
-        "name": "[EXACT product name from: NUUHA BEAUTY MUGWORT HYDRA BRIGHT GENTLE DAILY FOAM CLEANSER / NUUHA BEAUTY 4 IN 1 HYDRA BRIGHT ULTIMATE KOREAN WATER MIST / NUUHA BEAUTY 4X BRIGHTENING COMPLEX ADVANCED GLOW SERUM / NUUHA BEAUTY 10X SOOTHING COMPLEX HYPER RELIEF SERUM / NUUHA BEAUTY 7X PEPTIDE ULTIMATE GLASS SKIN MOISTURISER / NUUHA BEAUTY ULTRA GLOW BRIGHTENING SERUM SUNSCREEN SPF50+ PA++++]",
-        "step": [step number 1-6],
-        "how_to_use": "[clear instructions for product application]",
-        "frequency": "[usage frequency]",
-        "disease": {
-            "name": "[detected condition from list above]",
-            "confidence_percent": [confidence as decimal between 0-1]
+        "status": "success",
+        "analysis": {
+            "products": [
+                {
+                    "enhancement_remark": {
+                        "confidence_percent": [0.0-1.0],
+                        "feature": "[skin feature or area to enhance]",
+                        "recommendation": "[specific enhancement suggestion with period at end.]"
+                    } OR "disease": {
+                        "confidence_percent": [0.0-1.0],
+                        "name": "[skin condition name]"
+                    },
+                    "frequency": "[usage frequency with period at end.]",
+                    "how_to_use": "[detailed application instructions with period at end.]",
+                    "name": "[EXACT product name from: NUUHA BEAUTY MUGWORT HYDRA BRIGHT GENTLE DAILY FOAM CLEANSER / NUUHA BEAUTY 4 IN 1 HYDRA BRIGHT ULTIMATE KOREAN WATER MIST / NUUHA BEAUTY 4X BRIGHTENING COMPLEX ADVANCED GLOW SERUM / NUUHA BEAUTY 10X SOOTHING COMPLEX HYPER RELIEF SERUM / NUUHA BEAUTY 7X PEPTIDE ULTIMATE GLASS SKIN MOISTURISER / NUUHA BEAUTY ULTRA GLOW BRIGHTENING SERUM SUNSCREEN SPF50+ PA++++]",
+                    "step": [1-5]
+                }
+            ],
+            "skin_condition": "[excellent/good/moderate/concerning]",
+            "status_face": "[treatment/enhancement]"
         }
     }
+<<<<<<< HEAD
 ]"""
 >>>>>>> 91d9d47 (hakim)
+=======
+
+    IMPORTANT FORMAT RULES:
+    - All text fields must end with a period
+    - Keep exact field ordering as shown in the example
+    - Products array must be the first field in analysis object
+    - skin_condition and status_face must come after products array
+    - Each product must maintain exact field ordering: enhancement_remark/disease, frequency, how_to_use, name, step
+    - Response must be pure JSON with no additional text"""
+>>>>>>> 0d5aeb5 (push before release)
 
 def clean_gemini_response(response_text):
     try:
         # Strip any non-JSON content
+<<<<<<< HEAD
 <<<<<<< HEAD
         start = response_text.find('{')
         end = response_text.rfind('}') + 1
@@ -545,11 +581,18 @@ def clean_gemini_response(response_text):
         if start == -1 or end == 0:
             raise ValueError("No JSON array found in response")
 >>>>>>> 91d9d47 (hakim)
+=======
+        start = response_text.find('{')
+        end = response_text.rfind('}') + 1
+        if start == -1 or end == 0:
+            raise ValueError("No JSON object found in response")
+>>>>>>> 0d5aeb5 (push before release)
         json_str = response_text[start:end]
         return json.loads(json_str)
     except Exception as e:
         logging.error(f"Response text: {response_text}")
         raise
+<<<<<<< HEAD
 <<<<<<< HEAD
 
 # Initialize the Gemini manager globally
@@ -615,14 +658,19 @@ def serve_image(filename):
         }), 404
 
 >>>>>>> 91d9d47 (hakim)
+=======
+
+# Initialize the Gemini manager globally
+gemini_manager = GeminiManager()
+>>>>>>> 0d5aeb5 (push before release)
 
 @app.route('/analyze-skin', methods=['POST'])
 def analyze_skin():
     try:
         data = request.json
- 
         if 'image' not in data:
             return jsonify({"error": "Image data is required"}), 400
+<<<<<<< HEAD
 <<<<<<< HEAD
             
         # Remove data URL prefix if present
@@ -660,6 +708,9 @@ def analyze_skin():
 =======
         
     
+=======
+            
+>>>>>>> 0d5aeb5 (push before release)
         # Remove data URL prefix if present
         image_data = data['image']
         if ',' in image_data:
@@ -671,6 +722,7 @@ def analyze_skin():
         # Convert to PIL Image
         image = Image.open(io.BytesIO(image_bytes))
         
+<<<<<<< HEAD
         # Configure Gemini
         genai.configure(api_key="AIzaSyD_SxyscciDKfx7hhEeJ3yjFa0f7dmrEEE")
         model = genai.GenerativeModel(model_name="gemini-1.5-pro")
@@ -684,6 +736,29 @@ def analyze_skin():
             "analysis": analysis
         })
 >>>>>>> 91d9d47 (hakim)
+=======
+        # Get response using Gemini manager
+        try:
+            response = gemini_manager.generate_content(get_analysis_prompt(), image)
+            # Get the clean response and extract just the analysis part
+            cleaned_response = clean_gemini_response(response.text)
+            if 'analysis' in cleaned_response:
+                analysis = cleaned_response['analysis']
+            else:
+                analysis = cleaned_response
+                
+            return jsonify({
+                "status": "success",
+                "analysis": analysis
+            })
+        except Exception as e:
+            logging.error(f"Error generating content: {str(e)}")
+            return jsonify({
+                "status": "error",
+                "error": "Failed to analyze image after trying all available API keys and models."
+            }), 500
+            
+>>>>>>> 0d5aeb5 (push before release)
     except Exception as e:
         return jsonify({
             "status": "error",
@@ -691,6 +766,9 @@ def analyze_skin():
         }), 500
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 0d5aeb5 (push before release)
 # Add this new endpoint to your Flask app
 @app.route('/api/remove-background', methods=['POST'])
 def remove_background():
@@ -744,9 +822,12 @@ def remove_background():
             'success': False,
             'error': str(e)
         }), 500
+<<<<<<< HEAD
 =======
 
 >>>>>>> 91d9d47 (hakim)
+=======
+>>>>>>> 0d5aeb5 (push before release)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5003)
