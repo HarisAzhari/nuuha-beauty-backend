@@ -15,6 +15,7 @@ import threading
 from datetime import datetime
 import google.generativeai as genai
 from rembg import remove
+import os
 
 
 # Configure logging
