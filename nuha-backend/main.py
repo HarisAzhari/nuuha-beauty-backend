@@ -530,6 +530,7 @@ gemini_manager = GeminiManager()
 def analyze_skin():
     try:
         data = request.json
+ 
         if 'image' not in data:
             return jsonify({"error": "Image data is required"}), 400
             
