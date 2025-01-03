@@ -29,7 +29,7 @@ logging.basicConfig(
 app = Flask(__name__)
 CORS(app, resources={
     r"/*": {
-        "origins": ["https://nuhabeauty-web.vercel.app"],
+        "origins": ["https://nuhabeauty-web.vercel.app*"],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type"]
     }
