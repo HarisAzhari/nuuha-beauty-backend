@@ -27,13 +27,7 @@ logging.basicConfig(
 )
 
 app = Flask(__name__)
-CORS(app, resources={
-    r"/*": {
-        "origins": ["https://nuhabeauty-web.vercel.app"],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
-    }
-})
+CORS(app)  # Allow all origins for testing
 
 # [Previous ConditionTimer class remains the same]
 class ConditionTimer:
