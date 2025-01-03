@@ -28,7 +28,7 @@ logging.basicConfig(
 
 app = Flask(__name__)
 CORS(app, resources={
-    "/": {  # Allow all origins for all routes
+    "/api/*": {  # Allow all origins for /api routes
         "origins": "*",
         "methods": ["POST", "OPTIONS"],
         "allow_headers": ["Content-Type"]
